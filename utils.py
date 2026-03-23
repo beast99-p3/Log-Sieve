@@ -357,6 +357,9 @@ class NetworkTracker:
     """
 
     bytes_uplink_total: int = 0
+    # Approximate WAN savings assuming each internal dataset would have uploaded
+    # one model update of identical tensor shapes.
+    wan_bytes_saved_total: int = 0
     seconds_training_cpu_total: float = 0.0
     seconds_training_cpu_initial: float = 0.0
     seconds_training_cpu_federated: float = 0.0
@@ -368,6 +371,20 @@ class NetworkTracker:
         n = self.nbytes_of_arrays(arrays)
         self.bytes_uplink_total += n
         return n
+
+    def record_wan_bytes_saved(self, internal_clients: int, arrays: list[np.ndarray]) -> int:
+        """
+        Track approximate WAN bytes saved by aggregating internally at Tier 1.
+
+        If `internal_clients` separate models would have been uploaded independently,
+        only a single aggregated model is uploaded from this gateway.
+        """
+        if internal_clients <= 1:
+            return 0
+        n = self.nbytes_of_arrays(arrays)
+        saved = int((internal_clients - 1) * n)
+        self.wan_bytes_saved_total += saved
+        return saved
 
     @contextmanager
     def training_timer(self, phase: Literal["initial", "federated"] = "federated") -> Iterator[None]:

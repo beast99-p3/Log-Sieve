@@ -295,6 +295,28 @@ On **Flower 1.27+**, `start_server` / `start_client` may print **deprecation** n
 
 ---
 
+## Hierarchical Deployment (Tier 1/Tier 2)
+
+Log-Sieve supports a simple Tier 1 / Tier 2 Hierarchical Federated Learning (HFL) layout to address “Cloud Segmentation” scaling: multiple internal sensors inside the same company (e.g., EC2 instances in one VPC) keep raw logs locally, while a single gateway uploads only one aggregated model update to the global Tier 2 server.
+
+Tier 2 (global): run the existing `server.py` as before (e.g., `--strategy fedprox` or `--strategy fedavg`), aggregating the single updates it receives from each company gateway.
+
+Tier 1 (company gateway): run `gateway_client.py` instead of `client.py`. The gateway accepts a list of internal CSVs via `--data-paths` (for example, one CSV per sensor), trains a separate local `LogisticRegression` per CSV, and then computes a sample-weighted FedAvg across those internal models to form a single “Company Rulebook”. Only this single averaged weight update is uploaded to Tier 2 along with the combined sample count.
+
+WAN bandwidth benefit: the gateway uploads one parameter vector per round instead of one per internal dataset. The code tracks the approximate avoided WAN payload size in the new metric `wan_bytes_saved` (logged by `NetworkTracker`), computed as `(N_internal - 1) * size(one upload)`.
+
+Security boundary benefit: because the gateway aggregates intra-company models locally, raw traffic rows are never sent to Tier 2, preserving company VPC / tenant isolation while still enabling global coordination.
+
+Example (two gateways, each aggregating two internal sensors):
+
+```bash
+python server.py --port 8080 --rounds 5 --min-clients 2 --strategy fedprox --proximal-mu 0.1
+python gateway_client.py --server-address 127.0.0.1:8080 --data-paths data_partitions/node_0.csv data_partitions/node_1.csv --client-id company-A
+python gateway_client.py --server-address 127.0.0.1:8080 --data-paths data_partitions_skewed/node_0.csv data_partitions_skewed/node_1.csv --client-id company-B
+```
+
+---
+
 ## Limitations (explicit)
 
 - **Prototype only**: no TLS or auth.  
